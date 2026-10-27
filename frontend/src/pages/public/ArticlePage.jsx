@@ -1,79 +1,118 @@
-
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { getArticle, getArticles } from "../../api/articles";
 import "../../styles/article.css";
 
-const articles = {
-  "the-last-bus-to-hampi": {
-    category: "Travelogues",
-    title: "The Last Bus to Hampi",
-    date: "September 14, 2026",
-    readTime: "6 min read",
-    excerpt:
-      "Some journeys begin with a destination. Others begin with a bus you almost missed.",
-    paragraphs: [
-      "The bus was already coughing smoke when I reached the stand. A few people stood beneath the fading signboard, carrying bags, steel bottles, and the quiet impatience of people who had somewhere to be.",
-      "I found a window seat near the back. Outside, the evening was slowly losing its colour, and the road stretched ahead like a sentence whose ending I hadn't decided.",
-      "By the time we reached Hampi, the sky had turned the colour of burnt orange. The stones looked older than time, and for once, I didn't feel the need to photograph everything. I just stood there and looked.",
-    ],
-  },
+const API_ORIGIN = "http://127.0.0.1:8000";
 
-  "on-being-slightly-wrong": {
-    category: "Life",
-    title: "On Being Slightly Wrong, Mostly Forever",
-    date: "August 29, 2026",
-    readTime: "4 min read",
-    excerpt: "Growing up is learning to make peace with unfinished answers.",
-    paragraphs: [
-      "I used to think adulthood would arrive with a clean set of instructions. Instead, it arrived quietly, disguised as ordinary days and decisions I wasn't entirely sure about.",
-      "Perhaps being wrong isn't always a failure. Sometimes it is simply evidence that we tried to understand something beyond what we already knew.",
-    ],
-  },
+function getImageUrl(path) {
+  if (!path) return "";
 
-  "a-room-with-no-clock": {
-    category: "Life",
-    title: "A Room With No Clock",
-    date: "August 2, 2026",
-    readTime: "5 min read",
-    excerpt: "A small reflection on silence, time, and being alone.",
-    paragraphs: [
-      "The room had one window, a wooden chair, and no clock. For the first time in months, I had no reason to measure the afternoon.",
-      "The silence was uncomfortable at first. Then, slowly, it became a place I could rest.",
-    ],
-  },
+  if (
+    path.startsWith("http://") ||
+    path.startsWith("https://") ||
+    path.startsWith("data:")
+  ) {
+    return path;
+  }
 
-  "monsoon-letter": {
-    category: "Poetry",
-    title: "Monsoon Letter",
-    date: "July 20, 2026",
-    readTime: "1 min read",
-    excerpt: "A letter to the rain, and everything it remembers.",
-    paragraphs: [
-      "Dear rain, you returned without asking whether I was ready.",
-      "You found the dust on my windows, the words I never sent, and the streets that still remembered our footsteps.",
-    ],
-  },
+  return `${API_ORIGIN}/${path.replace(/^\/+/, "")}`;
+}
 
-  "things-i-learned-from-a-bad-map": {
-    category: "Stories",
-    title: "Things I Learned From a Bad Map",
-    date: "July 4, 2026",
-    readTime: "3 min read",
-    excerpt:
-      "Sometimes getting lost is the only way to notice where you are.",
-    paragraphs: [
-      "The map promised a shortcut. The road offered a field, two confused dogs, and a shop that had been closed for years.",
-      "I eventually found the right road. But I remembered the wrong turns more clearly than the destination.",
-    ],
-  },
-};
+function getPlainText(html = "") {
+  return html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatDate(value) {
+  if (!value) return "Date unavailable";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "Date unavailable";
+
+  return date.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function getReadTime(content = "") {
+  const words = getPlainText(content).split(/\s+/).filter(Boolean).length;
+  return `${Math.max(1, Math.ceil(words / 200))} min read`;
+}
 
 export default function ArticlePage() {
   const { slug } = useParams();
-  const article = articles[slug];
 
+  const [article, setArticle] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [progress, setProgress] = useState(0);
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadArticle() {
+      try {
+        setLoading(true);
+        setError("");
+        setArticle(null);
+
+        // Find the article by slug in the published article list.
+        const response = await getArticles();
+
+        const matchingArticle = response.find(
+          (item) => item.slug === slug
+        );
+
+        if (!matchingArticle) {
+          throw new Error("Story not found.");
+        }
+
+        // Fetch the complete article using its database ID.
+        const fullArticle = await getArticle(matchingArticle.id);
+
+        // Do not display drafts on the public reading page.
+        if (
+          fullArticle.published !== true ||
+          fullArticle.status !== "published"
+        ) {
+          throw new Error("Story not found.");
+        }
+
+        if (!cancelled) {
+          setArticle(fullArticle);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || "Could not load this story.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadArticle();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [slug]);
 
   useEffect(() => {
     function updateProgress() {
@@ -97,7 +136,7 @@ export default function ArticlePage() {
     return () => {
       window.removeEventListener("scroll", updateProgress);
     };
-  }, [slug]);
+  }, [slug, article]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
@@ -110,20 +149,32 @@ export default function ArticlePage() {
       await navigator.clipboard.writeText(window.location.href);
       setCopied(true);
     } catch {
-      setCopied(false);
       window.prompt("Copy this story link:", window.location.href);
     }
   }
 
-  if (!article) {
+  if (loading) {
+    return (
+      <section className="article-not-found">
+        <p>Loading story...</p>
+      </section>
+    );
+  }
+
+  if (error || !article) {
     return (
       <section className="article-not-found">
         <h1>Story not found.</h1>
-        <p>The story may have moved or does not exist.</p>
+        <p>{error || "The story may have moved or does not exist."}</p>
         <Link to="/">Return to home</Link>
       </section>
     );
   }
+
+  const excerpt =
+    article.subtitle || getPlainText(article.content || "").slice(0, 200);
+
+  const coverImage = getImageUrl(article.cover_image);
 
   return (
     <>
@@ -135,36 +186,61 @@ export default function ArticlePage() {
       </div>
 
       <article className="article-page">
-        <Link className="article-back" to="/stories">
+        <Link className="article-back" to="/">
           ← Back to stories
         </Link>
 
         <header className="article-header">
-          <span className="article-category">{article.category}</span>
+          <span className="article-category">
+            {article.category || "Stories"}
+          </span>
 
           <h1>{article.title}</h1>
 
-          <p className="article-excerpt">{article.excerpt}</p>
+          {excerpt && (
+            <p className="article-excerpt">{excerpt}</p>
+          )}
 
           <div className="article-meta">
-            <span>{article.date}</span>
+            <span>{formatDate(article.created_at)}</span>
             <span aria-hidden="true">·</span>
-            <span>{article.readTime}</span>
+            <span>{getReadTime(article.content || "")}</span>
           </div>
         </header>
 
-        <div
-          className="article-cover"
-          role="img"
-          aria-label={`Cover artwork for ${article.title}`}
-        >
-          <span>{article.category}</span>
-        </div>
+        {coverImage ? (
+          <div className="article-cover article-cover-image">
+            <img
+              src={coverImage}
+              alt={`Cover for ${article.title}`}
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+              }}
+            />
+          </div>
+        ) : (
+          <div
+            className="article-cover"
+            role="img"
+            aria-label={`Cover artwork for ${article.title}`}
+          >
+            <span>{article.category || "Stories"}</span>
+          </div>
+        )}
 
         <div className="article-body">
-          {article.paragraphs.map((paragraph, index) => (
-            <p key={`${slug}-${index}`}>{paragraph}</p>
-          ))}
+          {article.content ? (
+            <div
+              className="article-rich-content"
+              dangerouslySetInnerHTML={{
+                __html: article.content,
+              }}
+            />
+          ) : (
+            <p>This story does not have any content yet.</p>
+          )}
 
           <button
             type="button"
@@ -178,7 +254,7 @@ export default function ArticlePage() {
             ✳
           </div>
 
-          <Link className="article-back-bottom" to="/stories">
+          <Link className="article-back-bottom" to="/">
             Explore more stories →
           </Link>
         </div>

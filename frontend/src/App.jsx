@@ -8,12 +8,14 @@ import {
 
 import PublicLayout from "./layouts/PublicLayout";
 import AdminLayout from "./layouts/AdminLayout";
+import MyWork from "./pages/admin/MyWork";
 
 import Home from "./pages/public/Home";
 import ArticlePage from "./pages/public/ArticlePage";
 
 import AdminLogin from "./pages/admin/AdminLogin";
 import ArticleEditor from "./pages/admin/ArticleEditor";
+import Dashboard from "./pages/admin/Dashboard";
 
 // Admin Articles Page
 function AdminArticles() {
@@ -74,11 +76,14 @@ export default function App() {
           path="/admin"
           element={<AdminLayout />}
         >
+          <Route index element={<Dashboard />} />
+
           {/* Default page when opening /admin */}
           <Route
             index
             element={<Navigate to="editor" replace />}
           />
+          <Route path="/admin/work" element={<MyWork />} />
 
           <Route
             path="editor"

@@ -1,0 +1,212 @@
+/* ========================================
+   AN IDIOTS POV — ADMIN NAVBAR
+   ======================================== */
+
+/* Navbar layout */
+.admin-navbar {
+  width: 100%;
+  height: 68px;
+  padding: 0 34px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  background: #ffffff;
+  border-top: 3px solid #293d3c;
+  border-bottom: 1px solid #eeeeec;
+
+  box-sizing: border-box;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+
+/* Brand: An idiots pov */
+.admin-brand {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-right: auto;
+
+  background: transparent;
+  color: #b74725 !important;
+  text-decoration: none;
+}
+
+.admin-brand:hover,
+.admin-brand:focus,
+.admin-brand:active {
+  background: transparent;
+  color: #b74725;
+  text-decoration: none;
+}
+
+.admin-brand-mark {
+  display: none;
+}
+
+.admin-brand-name {
+  margin: 0;
+  color: #b74725 !important;
+
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 28px;
+  font-weight: 400;
+  font-style: italic;
+  letter-spacing: -0.6px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* Navigation links container: top-right corner */
+.admin-nav-links {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+
+  gap: 27px;
+  margin-left: auto;
+  margin-right: 0;
+  padding: 0;
+}
+
+/* Navigation links: normal weight */
+.admin-nav-link,
+.admin-nav-link:visited {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  margin: 0;
+  padding: 4px 0;
+
+  color: #68635f;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.4;
+
+  text-decoration: none;
+  text-decoration-color: #b74725;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 5px;
+  white-space: nowrap;
+
+  cursor: pointer;
+  transition: color 150ms ease;
+}
+
+/* Hide navigation icons */
+.admin-nav-link svg {
+  display: none;
+}
+
+/* Ensure labels are not bold */
+.admin-nav-link span {
+  font-weight: 400;
+}
+
+/* Hover: orange text + underline, no background */
+.admin-nav-link:hover {
+  color: #b74725 !important;
+  background: transparent !important;
+
+  text-decoration-line: underline;
+  text-decoration-color: #b74725;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 5px;
+
+  font-weight: 400;
+  box-shadow: none;
+}
+
+/* Active link: orange text + persistent underline */
+.admin-nav-link.active,
+.admin-nav-link.active:visited,
+.admin-nav-link.active:hover,
+.admin-nav-link.active:focus {
+  color: #b74725 !important;
+  background: transparent !important;
+
+  text-decoration-line: underline;
+  text-decoration-color: #b74725;
+  text-decoration-style: solid;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 5px;
+
+  font-weight: 400;
+  box-shadow: none;
+}
+
+.admin-nav-link.active span {
+  color: #b74725;
+  font-weight: 400;
+}
+
+/* Prevent global styles from adding backgrounds */
+.admin-navbar .admin-nav-link,
+.admin-navbar .admin-nav-link:hover,
+.admin-navbar .admin-nav-link.active {
+  background-color: transparent !important;
+}
+
+/* Keyboard focus */
+.admin-nav-link:focus-visible {
+  outline: 1px solid #b74725;
+  outline-offset: 5px;
+}
+
+/* Responsive navbar */
+@media (max-width: 600px) {
+  .admin-navbar {
+    height: auto;
+    min-height: 68px;
+    padding: 12px 18px;
+    flex-wrap: wrap;
+    gap: 14px;
+  }
+
+  .admin-brand-name {
+    font-size: 25px;
+  }
+
+  .admin-nav-links {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 22px;
+    flex-wrap: wrap;
+  }
+
+  .admin-nav-link,
+  .admin-nav-link:visited {
+    font-size: 14px;
+    font-weight: 400;
+  }
+}
+
+@media (max-width: 360px) {
+  .admin-navbar {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .admin-brand-name {
+    font-size: 23px;
+  }
+
+  .admin-nav-links {
+    gap: 16px;
+  }
+
+  .admin-nav-link,
+  .admin-nav-link:visited {
+    font-size: 13px;
+  }
+}

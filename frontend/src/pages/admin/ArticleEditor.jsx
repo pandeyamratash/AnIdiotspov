@@ -1,795 +1,797 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import {
-  ImagePlus,
-  Bold,
-  Italic,
-  Underline,
-  Heading1,
-  List,
-  ListOrdered,
-  Quote,
-  Link as LinkIcon,
-  Save,
-  Send,
-  Download,
-  Trash2,
-  Undo2,
-  Redo2,
-  Strikethrough,
-  Code,
-  Minus,
-  Grid2X2,
-  LogOut,
-} from "lucide-react";
-import "../../styles/editor.css";
 
-const STORAGE_DRAFTS = "idiotspov-drafts";
-const STORAGE_ARTICLES = "idiotspov-articles";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { ArrowLeft, Eye, Save, ImagePlus } from "lucide-react";
+import "../../styles/editor.css";
+import {
+  getArticle,
+  createArticle,
+  updateArticle as updateArticleAPI,
+  uploadImage,
+} from "../../api/articles";
+
+const API_ORIGIN = "http://127.0.0.1:8000";
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+
+const ALLOWED_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+];
+
+const today = () => {
+  const date = new Date();
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
+
+const emptyArticle = () => ({
+  id: `article-${Date.now()}`,
+  title: "",
+  subtitle: "",
+  content: "",
+  category: "Blogs",
+  tags: "",
+  status: "private",
+  published: false,
+  date: today(),
+  coverImage: "",
+  slug: "",
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+});
+
+function getImageUrl(path) {
+  if (!path) return "";
+
+  if (/^(https?:\/\/|data:|blob:)/i.test(path)) {
+    return path;
+  }
+
+  return `${API_ORIGIN}/${path.replace(/^\/+/, "")}`;
+}
+
+function validateImage(file) {
+  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+    throw new Error("Choose a JPG, PNG, WEBP, or GIF image.");
+  }
+
+  if (file.size === 0) {
+    throw new Error("The selected image is empty.");
+  }
+
+  if (file.size > MAX_IMAGE_SIZE) {
+    throw new Error("Images must be 5 MB or smaller.");
+  }
+}
 
 export default function ArticleEditor() {
   const navigate = useNavigate();
 
-  const [title, setTitle] = useState("");
-  const [subtitle, setSubtitle] = useState("");
-  const [category, setCategory] = useState("Blogs");
-  const [tags, setTags] = useState("");
-  const [location, setLocation] = useState("");
-  const [publicationDate, setPublicationDate] = useState("");
-  const [author, setAuthor] = useState("An Idiot");
-  const [slug, setSlug] = useState("");
-  const [seoDescription, setSeoDescription] = useState("");
-  const [altText, setAltText] = useState("");
-  const [caption, setCaption] = useState("");
-  const [cover, setCover] = useState("");
-  const [content, setContent] = useState("");
-  const [status, setStatus] = useState("Draft");
+  const editorRef = useRef(null);
+  const coverInputRef = useRef(null);
+  const inlineInputRef = useRef(null);
+  const savedRangeRef = useRef(null);
+
+  const [article, setArticle] = useState(emptyArticle);
   const [message, setMessage] = useState("");
-  const [lastSaved, setLastSaved] = useState("");
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [coverUploading, setCoverUploading] = useState(false);
+  const [inlineUploading, setInlineUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const wordCount = content.trim()
-    ? content.trim().split(/\s+/).length
-    : 0;
+  // Load an existing article from FastAPI.
+  useEffect(() => {
+    let cancelled = false;
 
-  // Log out and return to the admin login page.
-  function handleLogout() {
-    sessionStorage.removeItem("idiotspov-admin-auth");
-    navigate("/admin/login", { replace: true });
-  }
+    async function loadArticle() {
+      const params = new URLSearchParams(window.location.search);
+      const editId = params.get("id");
 
-  function makeSlug(value) {
-    return value
-      .toLowerCase()
-      .trim()
-      .replace(/[^\w\s-]/g, "")
-      .replace(/\s+/g, "-");
-  }
+      if (!editId) return;
 
-  function updateTitle(value) {
-    setTitle(value);
+      try {
+        const existing = await getArticle(editId);
 
-    if (!slug || slug === makeSlug(title)) {
-      setSlug(makeSlug(value));
-    }
-  }
+        if (cancelled) return;
 
-  function uploadCover(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      setMessage("Please select an image file.");
-      event.target.value = "";
-      return;
-    }
-
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      setCover(String(reader.result));
-      setMessage("");
-    };
-
-    reader.onerror = () => {
-      setMessage("Unable to read the selected image.");
-    };
-
-    reader.readAsDataURL(file);
-    event.target.value = "";
-  }
-
-  function removeCover() {
-    setCover("");
-    setAltText("");
-    setCaption("");
-  }
-
-  function getArticle(publish = false) {
-    return {
-      id: crypto.randomUUID(),
-      title: title.trim(),
-      subtitle: subtitle.trim(),
-      category,
-      tags: tags
-        .split(",")
-        .map((tag) => tag.trim())
-        .filter(Boolean),
-      location: location.trim(),
-      publicationDate,
-      author: author.trim(),
-      slug: slug.trim() || makeSlug(title),
-      seoDescription: seoDescription.trim(),
-      cover,
-      altText: altText.trim(),
-      caption: caption.trim(),
-      content,
-      status: publish ? "Published" : "Draft",
-      updatedAt: new Date().toISOString(),
-    };
-  }
-
-  function saveArticle(publish = false) {
-    if (!title.trim()) {
-      setMessage("Add a title before saving your article.");
-      return;
-    }
-
-    const key = publish ? STORAGE_ARTICLES : STORAGE_DRAFTS;
-
-    try {
-      const article = getArticle(publish);
-      const existing = JSON.parse(localStorage.getItem(key) || "[]");
-
-      const existingIndex = existing.findIndex(
-        (item) => item.slug && item.slug === article.slug
-      );
-
-      if (existingIndex >= 0) {
-        existing[existingIndex] = {
-          ...existing[existingIndex],
-          ...article,
-          id: existing[existingIndex].id,
-        };
-      } else {
-        existing.push(article);
-      }
-
-      localStorage.setItem(key, JSON.stringify(existing));
-
-      // Remove the matching draft after publishing.
-      if (publish) {
-        const drafts = JSON.parse(
-          localStorage.getItem(STORAGE_DRAFTS) || "[]"
-        );
-
-        localStorage.setItem(
-          STORAGE_DRAFTS,
-          JSON.stringify(
-            drafts.filter((item) => item.slug !== article.slug)
-          )
-        );
-      }
-
-      setStatus(publish ? "Published" : "Draft");
-
-      setLastSaved(
-        new Date().toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      );
-
-      setMessage(
-        publish
-          ? "Article published in local storage."
-          : "Draft saved successfully."
-      );
-    } catch {
-      setMessage(
-        "Unable to save. The article or images may be too large."
-      );
-    }
-  }
-
-  function exportJSON() {
-    try {
-      const article = getArticle(status === "Published");
-
-      const blob = new Blob([JSON.stringify(article, null, 2)], {
-        type: "application/json",
-      });
-
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-
-      link.href = url;
-      link.download = `${article.slug || "article"}.json`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-
-      URL.revokeObjectURL(url);
-      setMessage("Article exported as JSON.");
-    } catch {
-      setMessage("Unable to export the article.");
-    }
-  }
-
-  function previewArticle() {
-    const article = getArticle(status === "Published");
-    const previewWindow = window.open("", "_blank");
-
-    if (!previewWindow) {
-      setMessage("Allow pop-ups to open the article preview.");
-      return;
-    }
-
-    const escapeHtml = (value) =>
-      String(value || "").replace(/[&<>"']/g, (char) => ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#39;",
-      })[char]);
-
-    previewWindow.document.write(`
-      <!doctype html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>${escapeHtml(article.title)}</title>
-        <style>
-          * { box-sizing: border-box; }
-          body {
-            max-width: 760px;
-            margin: 60px auto;
-            padding: 0 24px;
-            color: #202d4b;
-            font-family: Georgia, serif;
-            line-height: 1.9;
-          }
-          h1 {
-            font-size: clamp(38px, 7vw, 64px);
-            line-height: 1.1;
-          }
-          .subtitle {
-            color: #777;
-            font-size: 22px;
-          }
-          .meta {
-            color: #b94c2b;
-            font: 12px Arial, sans-serif;
-            letter-spacing: .1em;
-            text-transform: uppercase;
-          }
-          img {
-            display: block;
-            width: 100%;
-            height: auto;
-            margin: 32px 0;
-          }
-          .body {
-            white-space: pre-wrap;
-            overflow-wrap: anywhere;
-            font-size: 19px;
-          }
-          figcaption {
-            color: #777;
-            font-size: 14px;
-          }
-        </style>
-      </head>
-      <body>
-        <p class="meta">${escapeHtml(article.category)}${
-          article.location
-            ? " · " + escapeHtml(article.location)
-            : ""
-        }</p>
-        <h1>${escapeHtml(article.title)}</h1>
-        <p class="subtitle">${escapeHtml(article.subtitle)}</p>
-        ${
-          article.cover
-            ? `<figure>
-                <img src="${article.cover}" alt="${escapeHtml(article.altText)}" />
-                <figcaption>${escapeHtml(article.caption)}</figcaption>
-              </figure>`
-            : ""
+        setArticle({
+          ...emptyArticle(),
+          ...existing,
+          id: existing.id,
+          status: existing.published ? "public" : "private",
+          published: existing.published,
+          subtitle: existing.subtitle || "",
+          content: existing.content || "",
+          date: existing.created_at
+            ? existing.created_at.slice(0, 10)
+            : today(),
+          tags: existing.tags || "",
+          coverImage: existing.cover_image || "",
+        });
+      } catch (error) {
+        if (!cancelled) {
+          setMessage(`Could not load article: ${error.message}`);
         }
-        <p class="meta">By ${escapeHtml(article.author)}</p>
-        <div class="body">${escapeHtml(article.content)}</div>
-      </body>
-      </html>
-    `);
+      }
+    }
 
-    previewWindow.document.close();
+    loadArticle();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Populate the editor after the article has loaded.
+  useEffect(() => {
+    if (editorRef.current) {
+      editorRef.current.innerHTML = article.content || "";
+    }
+  }, [article.id]);
+
+  function updateArticle(field, value) {
+    setArticle((current) => ({
+      ...current,
+      [field]: value,
+    }));
   }
 
-  function insertAtCursor(text) {
-    const textarea = document.getElementById("article-content");
-    if (!textarea) return;
-
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-
-    const next =
-      content.slice(0, start) + text + content.slice(end);
-
-    setContent(next);
-
-    requestAnimationFrame(() => {
-      textarea.focus();
-      const cursor = start + text.length;
-      textarea.setSelectionRange(cursor, cursor);
-    });
+  function syncEditorContent() {
+    const content = editorRef.current?.innerHTML || "";
+    updateArticle("content", content);
+    return content;
   }
 
-  function formatText(before, after = before) {
-    const textarea = document.getElementById("article-content");
-    if (!textarea) return;
+  // Preserve the user's cursor before opening the file picker.
+  function rememberCursor() {
+    const editor = editorRef.current;
+    const selection = window.getSelection();
 
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selected = content.slice(start, end);
-    const text = selected || "text";
-    const replacement = `${before}${text}${after}`;
-
-    setContent(
-      content.slice(0, start) + replacement + content.slice(end)
-    );
-
-    requestAnimationFrame(() => {
-      textarea.focus();
-      textarea.setSelectionRange(
-        start + before.length,
-        start + before.length + text.length
-      );
-    });
-  }
-
-  function insertInlineImage(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      setMessage("Please select an image file.");
-      event.target.value = "";
+    if (
+      !editor ||
+      !selection ||
+      selection.rangeCount === 0 ||
+      !editor.contains(selection.anchorNode)
+    ) {
       return;
     }
 
-    const reader = new FileReader();
+    savedRangeRef.current = selection.getRangeAt(0).cloneRange();
+  }
 
-    reader.onload = () => {
-      insertAtCursor(
-        `\n\n![${file.name}](${reader.result})\n\n`
-      );
-      setMessage("Image reference inserted at the cursor.");
-    };
+  function restoreCursor() {
+    const editor = editorRef.current;
 
-    reader.onerror = () => {
-      setMessage("Unable to read the selected image.");
-    };
+    if (!editor) return;
 
-    reader.readAsDataURL(file);
+    editor.focus();
+
+    const selection = window.getSelection();
+    const savedRange = savedRangeRef.current;
+
+    if (
+      selection &&
+      savedRange &&
+      editor.contains(savedRange.startContainer) &&
+      editor.contains(savedRange.endContainer)
+    ) {
+      selection.removeAllRanges();
+      selection.addRange(savedRange);
+      return;
+    }
+
+    if (selection) {
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
+
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  }
+
+  // Insert a successfully uploaded image at the saved cursor position.
+  function insertImageElement(url, altText = "") {
+    const editor = editorRef.current;
+
+    if (!editor) {
+      setMessage("The writing editor is not available.");
+      return;
+    }
+
+    restoreCursor();
+
+    const selection = window.getSelection();
+    const image = document.createElement("img");
+
+    image.src = url;
+    image.alt = altText;
+    image.loading = "lazy";
+    image.style.maxWidth = "100%";
+    image.style.height = "auto";
+    image.style.display = "block";
+    image.style.margin = "1.5rem auto";
+
+    if (
+      selection &&
+      selection.rangeCount > 0 &&
+      editor.contains(selection.anchorNode)
+    ) {
+      const range = selection.getRangeAt(0);
+
+      range.deleteContents();
+      range.insertNode(image);
+
+      const spacer = document.createElement("p");
+      spacer.appendChild(document.createElement("br"));
+      image.after(spacer);
+
+      const nextRange = document.createRange();
+      nextRange.setStart(spacer, 0);
+      nextRange.collapse(true);
+
+      selection.removeAllRanges();
+      selection.addRange(nextRange);
+
+      savedRangeRef.current = nextRange.cloneRange();
+    } else {
+      editor.appendChild(image);
+      editor.appendChild(document.createElement("p"));
+    }
+
+    syncEditorContent();
+    editor.focus();
+  }
+
+  // Upload an inline image to FastAPI instead of embedding Base64.
+  async function insertImageInArticle(event) {
+    const file = event.target.files?.[0];
+
+    // Allow the same image to be selected again later.
     event.target.value = "";
+
+    if (!file) return;
+
+    try {
+      validateImage(file);
+      rememberCursor();
+
+      setInlineUploading(true);
+      setMessage("Uploading inline image...");
+
+      const uploaded = await uploadImage(file);
+
+      if (!uploaded?.url) {
+        throw new Error("The server did not return an image URL.");
+      }
+
+      insertImageElement(uploaded.url, file.name);
+
+      setMessage("Inline image uploaded and inserted.");
+    } catch (error) {
+      setMessage(`Inline image upload failed: ${error.message}`);
+    } finally {
+      setInlineUploading(false);
+    }
+  }
+
+  // Upload the cover and store its returned URL in React state.
+  async function uploadCover(file) {
+    if (!file) return;
+
+    try {
+      validateImage(file);
+
+      setCoverUploading(true);
+      setMessage("Uploading cover image...");
+
+      const uploaded = await uploadImage(file);
+
+      if (!uploaded?.url) {
+        throw new Error("The server did not return an image URL.");
+      }
+
+      updateArticle("coverImage", uploaded.url);
+      setMessage("Cover image uploaded successfully.");
+    } catch (error) {
+      setMessage(`Cover upload failed: ${error.message}`);
+    } finally {
+      setCoverUploading(false);
+    }
+  }
+
+  function handleCoverUpload(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    void uploadCover(file);
+  }
+
+  function handleCoverDrop(event) {
+    event.preventDefault();
+
+    const file = event.dataTransfer.files?.[0];
+
+    if (file) {
+      void uploadCover(file);
+    }
+  }
+
+  async function saveArticle(nextStatus = article.status) {
+    const title = article.title.trim();
+
+    if (!title) {
+      setMessage("Please enter an article title.");
+      return;
+    }
+
+    if (coverUploading || inlineUploading) {
+      setMessage("Please wait for image uploads to finish.");
+      return;
+    }
+
+    const content = editorRef.current?.innerHTML ?? article.content ?? "";
+    const published = nextStatus === "public";
+
+    const payload = {
+      title,
+      subtitle: article.subtitle || null,
+      content,
+      category: article.category || null,
+      tags: article.tags || null,
+      status: published ? "published" : "draft",
+      published,
+      cover_image: article.coverImage || null,
+    };
+
+    try {
+      setSaving(true);
+      setMessage("Saving article...");
+
+      const isExistingArticle =
+        typeof article.id === "number" ||
+        (typeof article.id === "string" && /^\d+$/.test(article.id));
+
+      const saved = isExistingArticle
+        ? await updateArticleAPI(Number(article.id), payload)
+        : await createArticle(payload);
+
+      const updatedArticle = {
+        ...article,
+        ...saved,
+        id: saved.id,
+        status: saved.published ? "public" : "private",
+        published: saved.published,
+        subtitle: saved.subtitle || "",
+        content: saved.content || "",
+        coverImage: saved.cover_image || "",
+        tags: saved.tags || "",
+        date: saved.created_at
+          ? saved.created_at.slice(0, 10)
+          : article.date,
+        createdAt: saved.created_at,
+        updatedAt: saved.updated_at,
+      };
+
+      setArticle(updatedArticle);
+
+      setMessage(
+        saved.published
+          ? "Article published successfully."
+          : "Draft saved to database."
+      );
+
+      // Use the database ID for all future edits.
+      window.history.replaceState(
+        {},
+        "",
+        `${window.location.pathname}?id=${saved.id}`
+      );
+
+      return saved;
+    } catch (error) {
+      setMessage(`Save failed: ${error.message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSave() {
+    await saveArticle(article.status);
+  }
+
+  function handlePublishChange(status) {
+    setArticle((current) => ({
+      ...current,
+      status,
+      published: status === "public",
+    }));
+  }
+
+  function handlePreview() {
+    syncEditorContent();
+    setPreviewOpen(true);
+  }
+
+  function insertFormatting(command, value = null) {
+    editorRef.current?.focus();
+
+    document.execCommand(command, false, value);
+
+    syncEditorContent();
+    rememberCursor();
+  }
+
+  function insertLink() {
+    const url = window.prompt("Enter the link URL:");
+
+    if (!url) return;
+
+    try {
+      const parsed = new URL(url);
+
+      if (!["http:", "https:", "mailto:"].includes(parsed.protocol)) {
+        throw new Error("Unsupported link type.");
+      }
+
+      insertFormatting("createLink", url);
+    } catch {
+      setMessage("Please enter a valid http, https, or email link.");
+    }
+  }
+
+  function startNewArticle() {
+    if (
+      article.title.trim() ||
+      (editorRef.current?.innerHTML || "").trim()
+    ) {
+      const shouldLeave = window.confirm(
+        "Start a new article? Save your current changes first if you want to keep them."
+      );
+
+      if (!shouldLeave) return;
+    }
+
+    setArticle(emptyArticle());
+
+    if (editorRef.current) {
+      editorRef.current.innerHTML = "";
+    }
+
+    savedRangeRef.current = null;
+
+    window.history.replaceState({}, "", window.location.pathname);
+    setMessage("");
   }
 
   return (
-    <div className="editor-page reference-editor">
-      <header className="reference-editor-navbar">
-        <button
-          className="reference-editor-brand"
-          type="button"
-          onClick={() => navigate("/")}
-        >
-          An idiots pov
-        </button>
+    <div className="editor-page">
+      <div className="editor-topbar">
+        <div className="editor-breadcrumbs">
+          <button
+            className="editor-back-link"
+            type="button"
+            onClick={() => navigate("/admin")}
+          >
+            <ArrowLeft size={15} />
+            Dashboard
+          </button>
 
-        <div className="reference-navbar-actions">
-          <span className="reference-autosave-status">
-            <span className="reference-draft-dot" />
-            {status}
-            {lastSaved && ` · saved ${lastSaved}`}
+          <span className="editor-entry-label">
+            {new URLSearchParams(window.location.search).has("id")
+              ? "EDIT ENTRY"
+              : "NEW ENTRY"}
+          </span>
+        </div>
+
+        <div className="editor-actions">
+          <span
+            className={`editor-status-pill ${
+              article.status === "public" ? "is-public" : ""
+            }`}
+          >
+            {article.status === "public" ? "PUBLIC" : "PRIVATE"}
           </span>
 
           <button
-            className="reference-button"
+            className="editor-preview-button"
             type="button"
-            onClick={previewArticle}
+            onClick={handlePreview}
           >
+            <Eye size={15} />
             Preview
           </button>
 
           <button
-            className="reference-button"
+            className="editor-save-button"
             type="button"
-            onClick={exportJSON}
-          >
-            <Download size={15} />
-            Export JSON
-          </button>
-
-          <button
-            className="reference-button"
-            type="button"
-            onClick={() => saveArticle(false)}
+            onClick={handleSave}
+            disabled={saving || coverUploading || inlineUploading}
           >
             <Save size={15} />
-            Save draft
-          </button>
-
-          <button
-            className="reference-button reference-publish"
-            type="button"
-            onClick={() => saveArticle(true)}
-          >
-            <Send size={15} />
-            Publish
-          </button>
-
-          {/* Logout button */}
-          <button
-            className="reference-button reference-logout"
-            type="button"
-            onClick={handleLogout}
-            title="Log out of your writing desk"
-          >
-            <LogOut size={15} />
-            <span>Logout</span>
+            {saving ? "Saving..." : "Save"}
           </button>
         </div>
-      </header>
+      </div>
 
-      <div className="reference-editor-layout">
-        <main className="reference-writing-column">
-          <section className="reference-cover-section">
-            {cover ? (
-              <div className="reference-cover-preview">
+      {message && (
+        <div className="editor-message" role="status">
+          {message}
+        </div>
+      )}
+
+      <div className="editor-columns">
+        <main className="editor-writing-column">
+          <input
+            ref={coverInputRef}
+            className="editor-hidden-input"
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            onChange={handleCoverUpload}
+          />
+
+          <button
+            className={`editor-cover-upload ${
+              article.coverImage ? "has-cover" : ""
+            }`}
+            type="button"
+            disabled={coverUploading}
+            onClick={() => coverInputRef.current?.click()}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={handleCoverDrop}
+          >
+            {article.coverImage ? (
+              <>
                 <img
-                  src={cover}
-                  alt={altText || "Cover preview"}
+                  className="editor-cover-image"
+                  src={getImageUrl(article.coverImage)}
+                  alt="Article cover"
                 />
 
-                <button
-                  className="reference-remove-cover"
-                  type="button"
-                  onClick={removeCover}
-                >
-                  <Trash2 size={14} />
-                  Remove
-                </button>
-              </div>
+                <span className="editor-cover-change">
+                  <ImagePlus size={16} />
+                  {coverUploading ? "Uploading..." : "Change cover image"}
+                </span>
+              </>
             ) : (
-              <label className="reference-cover-upload">
-                <ImagePlus size={20} />
-                <span>Drop a cover image here, or click to upload</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={uploadCover}
-                  hidden
-                />
-              </label>
+              <span className="editor-cover-placeholder">
+                {coverUploading
+                  ? "Uploading cover image..."
+                  : "Drop a cover image here, or click to upload"}
+              </span>
             )}
-
-            <div className="reference-cover-details">
-              <input
-                value={altText}
-                onChange={(event) => setAltText(event.target.value)}
-                placeholder="Alt text"
-                aria-label="Cover image alt text"
-              />
-
-              <input
-                value={caption}
-                onChange={(event) => setCaption(event.target.value)}
-                placeholder="Caption"
-                aria-label="Cover image caption"
-              />
-
-              {cover && (
-                <button type="button" onClick={removeCover}>
-                  Remove
-                </button>
-              )}
-            </div>
-          </section>
+          </button>
 
           <input
-            className="reference-title-input"
-            value={title}
-            onChange={(event) => updateTitle(event.target.value)}
+            className="editor-title-input"
+            type="text"
             placeholder="Title"
             aria-label="Article title"
+            value={article.title}
+            onChange={(event) => updateArticle("title", event.target.value)}
           />
 
           <input
-            className="reference-subtitle-input"
-            value={subtitle}
-            onChange={(event) => setSubtitle(event.target.value)}
+            className="editor-subtitle-input"
+            type="text"
             placeholder="Subtitle or short description"
             aria-label="Article subtitle"
+            value={article.subtitle}
+            onChange={(event) =>
+              updateArticle("subtitle", event.target.value)
+            }
           />
 
-          <div className="reference-format-toolbar">
-            <button
-              type="button"
-              title="Undo"
-              onClick={() =>
-                setMessage(
-                  "Undo is not available for this text editor yet."
-                )
-              }
-            >
-              <Undo2 size={15} />
-            </button>
-
-            <button
-              type="button"
-              title="Redo"
-              onClick={() =>
-                setMessage(
-                  "Redo is not available for this text editor yet."
-                )
-              }
-            >
-              <Redo2 size={15} />
-            </button>
-
-            <span className="reference-toolbar-separator" />
-
+          <div
+            className="editor-toolbar"
+            role="toolbar"
+            aria-label="Text formatting"
+          >
             <select
-              aria-label="Paragraph style"
-              defaultValue="Paragraph"
-              onChange={(event) => {
-                const value = event.target.value;
-
-                if (value === "Heading 1") {
-                  insertAtCursor("\n\n# Heading\n\n");
-                }
-
-                if (value === "Heading 2") {
-                  insertAtCursor("\n\n## Heading\n\n");
-                }
-
-                if (value === "Quote") {
-                  insertAtCursor("\n\n> Quote\n\n");
-                }
-
-                event.target.value = "Paragraph";
-              }}
+              aria-label="Text style"
+              className="editor-format-select"
+              defaultValue="p"
+              onChange={(event) =>
+                insertFormatting("formatBlock", event.target.value)
+              }
             >
-              <option>Paragraph</option>
-              <option>Heading 1</option>
-              <option>Heading 2</option>
-              <option>Quote</option>
+              <option value="p">Paragraph</option>
+              <option value="h1">Heading 1</option>
+              <option value="h2">Heading 2</option>
+              <option value="h3">Heading 3</option>
+              <option value="blockquote">Quote</option>
             </select>
 
-            <span className="reference-toolbar-separator" />
+            <span className="editor-toolbar-divider" />
+
+            <button type="button" title="Undo" onClick={() => insertFormatting("undo")}>↶</button>
+            <button type="button" title="Redo" onClick={() => insertFormatting("redo")}>↷</button>
+
+            <span className="editor-toolbar-divider" />
+
+            <button type="button" title="Bold" onClick={() => insertFormatting("bold")}><strong>B</strong></button>
+            <button type="button" title="Italic" onClick={() => insertFormatting("italic")}><em>I</em></button>
+            <button type="button" title="Underline" onClick={() => insertFormatting("underline")}><u>U</u></button>
+            <button type="button" title="Strikethrough" onClick={() => insertFormatting("strikeThrough")}><s>S</s></button>
+
+            <span className="editor-toolbar-divider" />
+
+            <button type="button" title="Block quote" onClick={() => insertFormatting("formatBlock", "blockquote")}>❝</button>
+            <button type="button" title="Bulleted list" onClick={() => insertFormatting("insertUnorderedList")}>• List</button>
+            <button type="button" title="Numbered list" onClick={() => insertFormatting("insertOrderedList")}>1. List</button>
+            <button type="button" title="Insert link" onClick={insertLink}>Link</button>
+            <button type="button" title="Horizontal line" onClick={() => insertFormatting("insertHorizontalRule")}>—</button>
+
+            <span className="editor-toolbar-divider" />
 
             <button
               type="button"
-              title="Bold"
-              onClick={() => formatText("**")}
-            >
-              <Bold size={16} />
-            </button>
-
-            <button
-              type="button"
-              title="Italic"
-              onClick={() => formatText("*")}
-            >
-              <Italic size={16} />
-            </button>
-
-            <button
-              type="button"
-              title="Underline"
-              onClick={() => formatText("<u>", "</u>")}
-            >
-              <Underline size={16} />
-            </button>
-
-            <button
-              type="button"
-              title="Strikethrough"
-              onClick={() => formatText("~~")}
-            >
-              <Strikethrough size={16} />
-            </button>
-
-            <span className="reference-toolbar-separator" />
-
-            <button
-              type="button"
-              title="Quote"
-              onClick={() => insertAtCursor("\n\n> Quote\n\n")}
-            >
-              <Quote size={16} />
-            </button>
-
-            <button
-              type="button"
-              title="Heading"
-              onClick={() => insertAtCursor("\n\n## Heading\n\n")}
-            >
-              <Heading1 size={17} />
-            </button>
-
-            <button
-              type="button"
-              title="Bulleted list"
-              onClick={() => insertAtCursor("\n\n- List item\n")}
-            >
-              <List size={17} />
-            </button>
-
-            <button
-              type="button"
-              title="Numbered list"
-              onClick={() => insertAtCursor("\n\n1. List item\n")}
-            >
-              <ListOrdered size={17} />
-            </button>
-
-            <button
-              type="button"
-              title="Insert link"
-              onClick={() => formatText("[", "](https://example.com)")}
-            >
-              <LinkIcon size={16} />
-            </button>
-
-            <button
-              type="button"
-              title="Horizontal line"
-              onClick={() => insertAtCursor("\n\n---\n\n")}
-            >
-              <Minus size={17} />
-            </button>
-
-            <button
-              type="button"
-              title="Code"
-              onClick={() => formatText("`")}
-            >
-              <Code size={16} />
-            </button>
-
-            <label
-              className="reference-toolbar-image"
               title="Insert image"
+              disabled={inlineUploading}
+              onMouseDown={rememberCursor}
+              onClick={() => inlineInputRef.current?.click()}
             >
-              <ImagePlus size={16} />
-              <input
-                type="file"
-                accept="image/*"
-                onChange={insertInlineImage}
-                hidden
-              />
-              <span>Image</span>
-            </label>
+              ▣ {inlineUploading ? "Uploading..." : "Image"}
+            </button>
 
-            <label
-              className="reference-toolbar-image"
-              title="Gallery images"
-            >
-              <Grid2X2 size={16} />
-              <span>Gallery</span>
-            </label>
+            <input
+              ref={inlineInputRef}
+              className="editor-hidden-input"
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              onChange={insertImageInArticle}
+            />
           </div>
 
-          <textarea
-            id="article-content"
-            className="reference-content-input"
-            value={content}
-            onChange={(event) => setContent(event.target.value)}
-            placeholder="Start writing your story..."
+          <div
+            ref={editorRef}
+            className="editor-rich-text"
+            contentEditable
+            suppressContentEditableWarning
+            role="textbox"
             aria-label="Article content"
+            aria-multiline="true"
+            data-placeholder="Start writing your story..."
+            onInput={() => {
+              syncEditorContent();
+              rememberCursor();
+            }}
+            onKeyUp={rememberCursor}
+            onMouseUp={rememberCursor}
+            onBlur={rememberCursor}
           />
-
-          <div className="reference-word-count">
-            {wordCount} words
-          </div>
-
-          {message && (
-            <p className="reference-editor-message" role="status">
-              {message}
-            </p>
-          )}
         </main>
 
-        <aside className="reference-metadata-panel">
-          <label className="reference-field">
-            <span>Category</span>
+        <aside className="editor-settings-column">
+          <section className="editor-visibility-card">
+            <label className="editor-section-label">VISIBILITY</label>
+
+            <div className="editor-visibility-toggle">
+              <button
+                type="button"
+                className={article.status !== "public" ? "selected private" : ""}
+                onClick={() => handlePublishChange("private")}
+              >
+                Private
+              </button>
+
+              <button
+                type="button"
+                className={article.status === "public" ? "selected public" : ""}
+                onClick={() => handlePublishChange("public")}
+              >
+                Public
+              </button>
+            </div>
+
+            <p className="editor-visibility-description">
+              {article.status === "public"
+                ? "This article is marked public and can appear on the public site."
+                : "Only you can see this in the editor. It will not appear on the public site."}
+            </p>
+          </section>
+
+          <div className="editor-field">
+            <label className="editor-section-label" htmlFor="editor-category">
+              CATEGORY
+            </label>
+
             <select
-              value={category}
-              onChange={(event) => setCategory(event.target.value)}
+              id="editor-category"
+              value={article.category}
+              onChange={(event) => updateArticle("category", event.target.value)}
             >
-              {["Blogs", "Stories", "Travelogues", "Life", "Poetry"].map(
-                (item) => (
-                  <option key={item}>{item}</option>
-                )
-              )}
+              <option value="Blogs">Blogs</option>
+              <option value="Travelogues">Travelogues</option>
+              <option value="Life Experiences">Life Experiences</option>
+              <option value="Poetry">Poetry</option>
+              <option value="Stories">Stories</option>
+              <option value="Reflections">Reflections</option>
             </select>
-          </label>
+          </div>
 
-          <label className="reference-field">
-            <span>Tags (comma separated)</span>
-            <input
-              value={tags}
-              onChange={(event) => setTags(event.target.value)}
-              placeholder="mountains, slow travel"
-            />
-          </label>
+          <div className="editor-field">
+            <label className="editor-section-label" htmlFor="editor-tags">
+              TAGS (COMMA SEPARATED)
+            </label>
 
-          <label className="reference-field">
-            <span>Location (travelogues)</span>
             <input
-              value={location}
-              onChange={(event) => setLocation(event.target.value)}
-              placeholder="Hampi, India"
-            />
-          </label>
-
-          <label className="reference-field">
-            <span>Publication date</span>
-            <input
+              id="editor-tags"
               type="text"
-              value={publicationDate}
-              onChange={(event) =>
-                setPublicationDate(event.target.value)
-              }
-              placeholder="dd-mm-yyyy"
-              onFocus={(event) => {
-                event.target.type = "date";
-              }}
-              onBlur={(event) => {
-                if (!event.target.value) {
-                  event.target.type = "text";
-                }
-              }}
+              placeholder="mountains, slow travel"
+              value={article.tags}
+              onChange={(event) => updateArticle("tags", event.target.value)}
             />
-          </label>
+          </div>
 
-          <label className="reference-field">
-            <span>Author</span>
+          <div className="editor-field">
+            <label className="editor-section-label" htmlFor="editor-date">
+              DATE
+            </label>
+
             <input
-              value={author}
-              onChange={(event) => setAuthor(event.target.value)}
-              placeholder="An Idiot"
+              id="editor-date"
+              type="date"
+              value={article.date}
+              onChange={(event) => updateArticle("date", event.target.value)}
             />
-          </label>
-
-          <label className="reference-field">
-            <span>URL slug</span>
-            <input
-              value={slug}
-              onChange={(event) => setSlug(makeSlug(event.target.value))}
-              placeholder="auto-generated"
-            />
-          </label>
-
-          <label className="reference-field">
-            <span>SEO description</span>
-            <textarea
-              value={seoDescription}
-              onChange={(event) =>
-                setSeoDescription(event.target.value)
-              }
-              rows={2}
-              maxLength={160}
-            />
-          </label>
-
-          <div className="reference-metadata-footer">
-            <span>{wordCount} words</span>
-            <span>{Math.max(1, Math.ceil(wordCount / 200))} min read</span>
           </div>
         </aside>
       </div>
+
+      {previewOpen && (
+        <div
+          className="editor-preview-overlay"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setPreviewOpen(false);
+            }
+          }}
+        >
+          <article
+            className="editor-preview-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Article preview"
+          >
+            <div className="editor-preview-modal-top">
+              <span>ARTICLE PREVIEW</span>
+              <button type="button" onClick={() => setPreviewOpen(false)}>
+                Close
+              </button>
+            </div>
+
+            {article.coverImage && (
+              <img
+                className="editor-preview-cover"
+                src={getImageUrl(article.coverImage)}
+                alt=""
+              />
+            )}
+
+            <div className="editor-preview-body">
+              <p className="editor-preview-category">{article.category}</p>
+              <h1>{article.title || "Untitled article"}</h1>
+
+              {article.subtitle && (
+                <p className="editor-preview-subtitle">{article.subtitle}</p>
+              )}
+
+              <p className="editor-preview-date">{article.date}</p>
+
+              <div
+                className="editor-preview-content"
+                dangerouslySetInnerHTML={{
+                  __html:
+                    editorRef.current?.innerHTML || article.content || "",
+                }}
+              />
+            </div>
+          </article>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,63 +1,7 @@
-
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-
-const stories = [
-  {
-    slug: "the-last-bus-to-hampi",
-    title: "The Last Bus to Hampi",
-    category: "Travelogues",
-    location: "Hampi, India",
-    date: "2026-09-14",
-    readTime: 6,
-    excerpt:
-      "I missed the bus by four minutes. It turned out to be the best thing that happened all year.",
-    image: "hills",
-    featured: true,
-  },
-  {
-    slug: "on-being-slightly-wrong",
-    title: "On Being Slightly Wrong, Mostly Forever",
-    category: "Life",
-    date: "2026-08-29",
-    readTime: 4,
-    excerpt:
-      "Some thoughts on uncertainty, changing your mind, and learning to live with unfinished answers.",
-    image: "sea",
-  },
-  {
-    slug: "a-room-with-no-clock",
-    title: "A Room With No Clock",
-    category: "Life",
-    date: "2026-08-02",
-    readTime: 5,
-    excerpt:
-      "A quiet room, a slower afternoon, and the strange feeling of forgetting what time it is.",
-    image: "mist",
-  },
-  {
-    slug: "monsoon-letter",
-    title: "Monsoon Letter",
-    category: "Poetry",
-    date: "2026-07-20",
-    readTime: 1,
-    excerpt:
-      "A small letter to the rain, the streets, and everything the clouds bring back.",
-    image: "dusk",
-  },
-  {
-    slug: "things-i-learned-from-a-bad-map",
-    title: "Things I Learned From a Bad Map",
-    category: "Stories",
-    date: "2026-07-04",
-    readTime: 3,
-    excerpt:
-      "Getting lost has a way of showing you things that the shortest route never could.",
-    image: "hills",
-  },
-];
-
-const categories = ["All", "Travelogues", "Life", "Poetry", "Stories"];
+import { getArticles } from "../../api/articles";
+const defaultCategories = ["All", "Travelogues", "Life", "Poetry", "Stories"];
 
 const artwork = {
   hills: ["#d9d6cf", "#8c8b86", "#f2efe6"],
@@ -66,8 +10,28 @@ const artwork = {
   mist: ["#dcdcdc", "#9a9a9a", "#fafafa"],
 };
 
-function StoryArtwork({ type }) {
+function StoryArtwork({ type, imageUrl }) {
   const [background, hills, sun] = artwork[type] || artwork.hills;
+
+  if (imageUrl) {
+    return (
+      <div className="reader-story-art">
+        <img
+          src={
+            imageUrl.startsWith("http") || imageUrl.startsWith("data:")
+              ? imageUrl
+              : `http://127.0.0.1:8000/${imageUrl.replace(/^\/+/, "")}`
+          }
+          alt=""
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -91,8 +55,68 @@ function StoryArtwork({ type }) {
   );
 }
 
+function getPlainText(html = "") {
+  return html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function formatDate(value) {
+  if (!value) return "Date unavailable";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Date unavailable";
+
+  return date.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function getReadTime(content = "") {
+  const words = getPlainText(content).split(/\s+/).filter(Boolean).length;
+  return Math.max(1, Math.ceil(words / 200));
+}
+
+function mapArticle(article, index) {
+  const plainContent = getPlainText(article.content || "");
+  const excerpt =
+    getPlainText(article.subtitle || "") ||
+    plainContent.slice(0, 180) ||
+    "A story waiting to be explored.";
+
+  const artworkTypes = ["hills", "sea", "mist", "dusk"];
+
+  return {
+    id: article.id,
+    slug: article.slug,
+    title: article.title || "Untitled",
+    category: article.category || "Stories",
+    date: article.created_at,
+    readTime: getReadTime(article.content),
+    excerpt:
+      plainContent.length > 180 && !article.subtitle
+        ? `${plainContent.slice(0, 177).trim()}...`
+        : excerpt,
+    imageUrl: article.cover_image || "",
+    image: artworkTypes[index % artworkTypes.length],
+    location: "",
+  };
+}
+
 export default function Home() {
   const location = useLocation();
+
   const params = new URLSearchParams(location.search);
   const query = (params.get("q") || "").trim().toLowerCase();
 
@@ -101,20 +125,66 @@ export default function Home() {
     ? path.split("/").pop()
     : "All";
 
-  const initialCategory = categories.some(
+  const initialCategory = defaultCategories.find(
     (category) => category.toLowerCase() === routeCategory.toLowerCase()
-  )
-    ? categories.find(
-        (category) =>
-          category.toLowerCase() === routeCategory.toLowerCase()
-      )
-    : "All";
+  ) || "All";
 
   const [selectedCategory, setSelectedCategory] = useState(initialCategory);
   const [sortOrder, setSortOrder] = useState("newest");
+  const [articles, setArticles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadArticles() {
+      try {
+        setLoading(true);
+        setError("");
+
+        // By default, the API returns published articles only.
+        const data = await getArticles();
+
+        if (!cancelled) {
+          const mapped = Array.isArray(data)
+            ? data.map(mapArticle)
+            : [];
+
+          setArticles(mapped);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err.message ||
+              "Could not load stories. Please check that the backend is running."
+          );
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadArticles();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const categories = useMemo(() => {
+    const articleCategories = articles
+      .map((article) => article.category)
+      .filter(Boolean);
+
+    return [
+      "All",
+      ...new Set([...defaultCategories.slice(1), ...articleCategories]),
+    ];
+  }, [articles]);
 
   const visibleStories = useMemo(() => {
-    return stories
+    return articles
       .filter((story) => {
         const matchesCategory =
           selectedCategory === "All" ||
@@ -131,14 +201,18 @@ export default function Home() {
 
         return matchesCategory && searchableText.includes(query);
       })
-      .sort((a, b) =>
-        sortOrder === "newest"
-          ? new Date(b.date) - new Date(a.date)
-          : new Date(a.date) - new Date(b.date)
-      );
-  }, [selectedCategory, sortOrder, query]);
+      .sort((a, b) => {
+        const firstDate = new Date(a.date || 0).getTime();
+        const secondDate = new Date(b.date || 0).getTime();
 
-  const featuredStory = stories.find((story) => story.featured);
+        return sortOrder === "newest"
+          ? secondDate - firstDate
+          : firstDate - secondDate;
+      });
+  }, [articles, selectedCategory, sortOrder, query]);
+
+  const featuredStory =
+    selectedCategory === "All" && !query ? visibleStories[0] : null;
 
   return (
     <div className="reader-home">
@@ -151,13 +225,16 @@ export default function Home() {
         </p>
       </section>
 
-      {!query && selectedCategory === "All" && featuredStory && (
+      {featuredStory && (
         <section className="reader-featured">
           <Link
             to={`/articles/${featuredStory.slug}`}
             className="reader-featured-image"
           >
-            <StoryArtwork type={featuredStory.image} />
+            <StoryArtwork
+              type={featuredStory.image}
+              imageUrl={featuredStory.imageUrl}
+            />
           </Link>
 
           <div className="reader-featured-content">
@@ -224,52 +301,83 @@ export default function Home() {
           </p>
         )}
 
-        <div className="reader-story-grid">
-          {visibleStories.map((story) => (
-            <article className="reader-story-card" key={story.slug}>
-              <Link
-                to={`/articles/${story.slug}`}
-                className="reader-story-image"
-                aria-label={`Read ${story.title}`}
-              >
-                <StoryArtwork type={story.image} />
-              </Link>
-
-              <p className="reader-story-category">{story.category}</p>
-
-              <h3>
-                <Link to={`/articles/${story.slug}`}>{story.title}</Link>
-              </h3>
-
-              <p className="reader-story-excerpt">{story.excerpt}</p>
-
-              <p className="reader-story-meta">
-                {new Date(`${story.date}T12:00:00`).toLocaleDateString(
-                  "en-IN",
-                  { day: "numeric", month: "short", year: "numeric" }
-                )}
-                {" · "}
-                {story.readTime} min read
-              </p>
-            </article>
-          ))}
-        </div>
-
-        {visibleStories.length === 0 && (
+        {loading && (
           <div className="reader-empty-state">
-            <h3>No stories found</h3>
-            <p>Try another search or choose a different category.</p>
+            <p>Loading stories...</p>
+          </div>
+        )}
+
+        {!loading && error && (
+          <div className="reader-empty-state" role="alert">
+            <h3>Stories couldn't be loaded</h3>
+            <p>{error}</p>
             <button
               type="button"
               className="reader-filter"
-              onClick={() => {
-                setSelectedCategory("All");
-                window.history.replaceState(null, "", "/");
-              }}
+              onClick={() => window.location.reload()}
             >
-              Clear filters
+              Try again
             </button>
           </div>
+        )}
+
+        {!loading && !error && (
+          <>
+            <div className="reader-story-grid">
+              {visibleStories.map((story) => (
+                <article className="reader-story-card" key={story.id}>
+                  <Link
+                    to={`/articles/${story.slug}`}
+                    className="reader-story-image"
+                    aria-label={`Read ${story.title}`}
+                  >
+                    <StoryArtwork
+                      type={story.image}
+                      imageUrl={story.imageUrl}
+                    />
+                  </Link>
+
+                  <p className="reader-story-category">{story.category}</p>
+
+                  <h3>
+                    <Link to={`/articles/${story.slug}`}>
+                      {story.title}
+                    </Link>
+                  </h3>
+
+                  <p className="reader-story-excerpt">{story.excerpt}</p>
+
+                  <p className="reader-story-meta">
+                    {formatDate(story.date)}
+                    {" · "}
+                    {story.readTime} min read
+                  </p>
+                </article>
+              ))}
+            </div>
+
+            {visibleStories.length === 0 && (
+              <div className="reader-empty-state">
+                <h3>No stories found</h3>
+                <p>
+                  {articles.length === 0
+                    ? "Your published stories will appear here once you publish one."
+                    : "Try another search or choose a different category."}
+                </p>
+                <button
+                  type="button"
+                  className="reader-filter"
+                  onClick={() => {
+                    setSelectedCategory("All");
+                    setSortOrder("newest");
+                    window.history.replaceState(null, "", "/");
+                  }}
+                >
+                  Clear filters
+                </button>
+              </div>
+            )}
+          </>
         )}
       </section>
     </div>
