@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getArticle, getArticles } from "../../api/articles";
@@ -39,7 +40,9 @@ function formatDate(value) {
 
   const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) return "Date unavailable";
+  if (Number.isNaN(date.getTime())) {
+    return "Date unavailable";
+  }
 
   return date.toLocaleDateString("en-IN", {
     day: "numeric",
@@ -49,7 +52,10 @@ function formatDate(value) {
 }
 
 function getReadTime(content = "") {
-  const words = getPlainText(content).split(/\s+/).filter(Boolean).length;
+  const words = getPlainText(content)
+    .split(/\s+/)
+    .filter(Boolean).length;
+
   return `${Math.max(1, Math.ceil(words / 200))} min read`;
 }
 
@@ -62,6 +68,7 @@ export default function ArticlePage() {
   const [progress, setProgress] = useState(0);
   const [copied, setCopied] = useState(false);
 
+  // Load the selected published article.
   useEffect(() => {
     let cancelled = false;
 
@@ -71,7 +78,6 @@ export default function ArticlePage() {
         setError("");
         setArticle(null);
 
-        // Find the article by slug in the published article list.
         const response = await getArticles();
 
         const matchingArticle = response.find(
@@ -82,10 +88,9 @@ export default function ArticlePage() {
           throw new Error("Story not found.");
         }
 
-        // Fetch the complete article using its database ID.
         const fullArticle = await getArticle(matchingArticle.id);
 
-        // Do not display drafts on the public reading page.
+        // Do not display unpublished articles on the public page.
         if (
           fullArticle.published !== true ||
           fullArticle.status !== "published"
@@ -114,6 +119,7 @@ export default function ArticlePage() {
     };
   }, [slug]);
 
+  // Update the reading progress indicator.
   useEffect(() => {
     function updateProgress() {
       const scrollableHeight =
@@ -138,12 +144,14 @@ export default function ArticlePage() {
     };
   }, [slug, article]);
 
+  // Reset the page when opening another story.
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
     setProgress(0);
     setCopied(false);
   }, [slug]);
 
+  // Copy the current story URL.
   async function copyArticleLink() {
     try {
       await navigator.clipboard.writeText(window.location.href);
@@ -165,19 +173,23 @@ export default function ArticlePage() {
     return (
       <section className="article-not-found">
         <h1>Story not found.</h1>
-        <p>{error || "The story may have moved or does not exist."}</p>
+        <p>
+          {error || "The story may have moved or does not exist."}
+        </p>
         <Link to="/">Return to home</Link>
       </section>
     );
   }
 
   const excerpt =
-    article.subtitle || getPlainText(article.content || "").slice(0, 200);
+    article.subtitle ||
+    getPlainText(article.content || "").slice(0, 200);
 
   const coverImage = getImageUrl(article.cover_image);
 
   return (
     <>
+      {/* Reading progress bar */}
       <div className="article-progress-track" aria-hidden="true">
         <div
           className="article-progress-fill"
@@ -190,6 +202,28 @@ export default function ArticlePage() {
           ← Back to stories
         </Link>
 
+        {/* Cover image comes before the title and article content. */}
+        {coverImage ? (
+          <div className="article-cover article-cover-image">
+            <img
+              src={coverImage}
+              alt={`Cover for ${article.title}`}
+              onError={(event) => {
+                event.currentTarget.style.visibility = "hidden";
+              }}
+            />
+          </div>
+        ) : (
+          <div
+            className="article-cover"
+            role="img"
+            aria-label={`Cover artwork for ${article.title}`}
+          >
+            <span>{article.category || "Stories"}</span>
+          </div>
+        )}
+
+        {/* Article title and metadata */}
         <header className="article-header">
           <span className="article-category">
             {article.category || "Stories"}
@@ -208,28 +242,7 @@ export default function ArticlePage() {
           </div>
         </header>
 
-        {coverImage ? (
-          <div className="article-cover article-cover-image">
-            <img
-              src={coverImage}
-              alt={`Cover for ${article.title}`}
-              style={{
-                width: "100%",
-                height: "100%",
-                objectFit: "cover",
-              }}
-            />
-          </div>
-        ) : (
-          <div
-            className="article-cover"
-            role="img"
-            aria-label={`Cover artwork for ${article.title}`}
-          >
-            <span>{article.category || "Stories"}</span>
-          </div>
-        )}
-
+        {/* Complete article body */}
         <div className="article-body">
           {article.content ? (
             <div
